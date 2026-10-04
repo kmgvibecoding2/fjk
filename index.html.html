@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Планшет ГИС: VSH, PHIE, SOIL и ВНК</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<style>
+:root{
+  --bg:#eef1f3; --panel:#ffffff; --ink:#14202b; --muted:#5b6b78; --line:#d5dde3;
+  --accent:#0f6b7a; --accent-ink:#ffffff; --bad:#c2410c; --good:#15803d; --warn:#a16207; --soft:#e4ecf0;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--bg:#0f171d;--panel:#16222b;--ink:#e6edf2;--muted:#93a4b1;--line:#2a3a46;--accent:#3fb3c6;--accent-ink:#06222a;--bad:#fb8a5a;--good:#4ade80;--warn:#facc15;--soft:#1d2d38;}
+}
+:root[data-theme="dark"]{--bg:#0f171d;--panel:#16222b;--ink:#e6edf2;--muted:#93a4b1;--line:#2a3a46;--accent:#3fb3c6;--accent-ink:#06222a;--bad:#fb8a5a;--good:#4ade80;--warn:#facc15;--soft:#1d2d38;}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 2px}
+h2{font-size:17px;margin:0 0 8px}
+h3{font-size:15px;margin:14px 0 6px}
+.sub{color:var(--muted);margin:0 0 12px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,.btn,select,input[type=number]{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 11px;min-height:36px}
+button,.btn{cursor:pointer}
+button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:focus-visible,.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn input[type=file]{display:none}
+.msg{padding:8px 10px;border-radius:6px;background:var(--soft);font-size:14px;margin:8px 0;border-left:3px solid var(--accent)}
+.msg.warn{border-left-color:var(--warn)} .msg.bad{border-left-color:var(--bad)} .msg.good{border-left-color:var(--good)}
+.note{color:var(--muted);font-size:13px}
+.scroll{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600}
+.params{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px 14px;margin:8px 0}
+.params label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--muted)}
+.params input,.params select{width:100%;color:var(--ink)}
+.layers input{width:100px}
+.nud{display:inline-flex;gap:3px;align-items:center}
+.nb{padding:2px 8px;min-height:32px;line-height:1}
+.formula{background:var(--soft);padding:8px 12px;border-radius:6px;margin:6px 0;overflow-x:auto;white-space:nowrap}
+.tbd{color:var(--warn);font-weight:600}
+code,pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+pre{background:var(--soft);padding:10px;border-radius:6px;overflow-x:auto}
+ul{margin:6px 0;padding-left:20px}
+details summary{cursor:pointer;color:var(--accent);margin:6px 0}
+#plate{width:100%;height:900px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted);margin-top:6px}
+.sw{display:inline-block;width:14px;height:10px;border-radius:2px;vertical-align:middle;margin-right:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Планшет ГИС: GR, DTP, RHOB, NPHI, VSH, PHIE, SOIL</h1>
+  <p class="sub">Три пласта с ВНК. Загрузите LAS или откройте встроенный пример. Значения -999.25 и пропуски в расчёты не входят, глубина растёт вниз.</p>
+
+  <div class="row">
+    <label class="btn">Загрузить LAS<input type="file" id="fLas" accept=".las,.LAS,.txt"></label>
+    <label class="btn">Загрузить керн (CSV)<input type="file" id="fCore" accept=".csv,.txt,.tsv"></label>
+    <button class="primary" id="bExample">Пример (синтетика)</button>
+    <label style="display:flex;gap:6px;align-items:center;font-size:14px">Кп керна в файле: <select id="coreUnit"><option value="auto">авто</option><option value="frac">доли ед.</option><option value="pct">%</option></select></label>
+  </div>
+  <div id="status" class="msg">Загрузка…</div>
+
+  <section>
+    <h2>Планшет</h2>
+    <div id="plate-msg"></div>
+    <div class="row" style="margin-bottom:8px">
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px">Сдвиг керна, <span class="du">м</span>: <input type="number" id="coreShift" step="0.05" value="0" style="width:90px"></label>
+      <button id="bFitShift">Подобрать сдвиг</button>
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px">Допуск расхождения Кп, д.ед.: <input type="number" id="coreTol" step="0.01" value="0.04" style="width:84px"></label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="showCore" checked> показывать керн на PHIE</label>
+    </div>
+    <div class="scroll" id="plate-wrap">
+      <div style="min-width:1000px">
+        <div id="plate"></div>
+        <div id="plateSvg" style="display:none"></div>
+      </div>
+    </div>
+    <p class="note" id="plateMode"></p>
+    <div class="legend">
+      <span><span class="sw" style="background:rgba(60,160,80,.35)"></span>нефтяная часть пласта (выше ВНК)</span>
+      <span><span class="sw" style="background:rgba(60,120,220,.35)"></span>водяная часть (ниже ВНК)</span>
+      <span><span class="sw" style="background:#c2410c"></span>ВНК</span>
+      <span><span class="sw" style="background:rgba(21,128,61,.6)"></span>колонка коллекторов: слева по отсечкам ГИС</span>
+      <span><span class="sw" style="background:rgba(60,160,80,.6)"></span>справа принятые пласты (зелёный выше ВНК, синий ниже)</span>
+      <span><span class="sw" style="background:#f59e0b;border-radius:50%"></span>Кп керна</span>
+      <span><span class="sw" style="background:#d1242f;border-radius:50%"></span>керн с расхождением больше допуска</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Пласты и ВНК</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px">Шаг подправки, <span class="du">м</span>: <select id="nudge"><option>0.1</option><option>0.2</option><option selected>0.5</option><option>1</option></select></label>
+      <button id="bSnap">Привязать кровлю и подошву к ГИС по отсечкам</button>
+      <span class="note">▲ — граница выше (меньше глубина), ▼ — ниже. Заливки и колонка коллекторов пересчитываются сразу.</span>
+    </div>
+    <div id="layerMsg"></div>
+    <div class="scroll"><table class="layers"><thead><tr><th>Пласт</th><th>Кровля, <span class="du">м</span></th><th>Подошва, <span class="du">м</span></th><th>ВНК, <span class="du">м</span></th></tr></thead><tbody id="layerRows"></tbody></table></div>
+    <p class="note">ВНК задан вручную. В примере это допущение, а по реальным данным его берут из опробования, давлений или интерпретации, <span class="tbd">нужно подтвердить</span>.</p>
+
+    <h2 style="margin-top:14px">Параметры расчёта</h2>
+    <div class="params">
+      <label>GRmin, gAPI (чистый песок)<input type="number" id="grmin" step="any"></label>
+      <label>GRmax, gAPI (глина)<input type="number" id="grmax" step="any"></label>
+      <label>Метод Vsh<select id="vm"><option value="old" selected>Ларионов, древние породы</option><option value="ter">Ларионов, третичные породы</option><option value="lin">Линейный, Vsh = IGR</option></select></label>
+      <label>Плотность матрицы ρma, г/см³<input type="number" id="rma" step="0.01" value="2.65"></label>
+      <label>Плотность флюида ρf, г/см³<input type="number" id="rf" step="0.01" value="1.0"></label>
+      <label>Пористость глин PHIT<sub>sh</sub>, д.ед.<input type="number" id="phitsh" step="0.005" value="0.12"></label>
+      <label>Rw, Ом·м<input type="number" id="rw" step="0.005" value="0.05"></label>
+      <label>Archie a<input type="number" id="ea" step="0.05" value="1"></label>
+      <label>Archie m<input type="number" id="em" step="0.05" value="2"></label>
+      <label>Archie n<input type="number" id="en" step="0.05" value="2"></label>
+      <label>Отсечка Vsh, не более<input type="number" id="cutV" step="0.05" value="0.35"></label>
+      <label>Отсечка PHIE, не менее<input type="number" id="cutP" step="0.01" value="0.10"></label>
+      <label>Отсечка SOIL, не менее<input type="number" id="cutS" step="0.05" value="0.50"></label>
+    </div>
+    <div class="row">
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="phitshAuto" checked> PHIT<sub>sh</sub> автоматически (медиана PHIT при IGR ≥ 0.8)</label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="maskCal" checked> исключать каверны (CALI больше медианы на 1.5 дюйма)</label>
+      <button id="bAutoGR">GRmin/GRmax по перцентилям 5 и 95</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Итоги по пластам</h2>
+    <div id="sum-msg"></div>
+    <div class="scroll" id="sumTable"></div>
+    <div id="vnkCheck"></div>
+  </section>
+
+  <section id="s-core">
+    <h2>Сопоставление керна с PHIE</h2>
+    <div id="cmp-msg"></div>
+    <div class="scroll" id="cmpTable"></div>
+    <div id="cmpShift"></div>
+  </section>
+
+  <section id="s-meth">
+    <h2>Методика</h2>
+    <div class="formula">IGR = (GR − GRmin) / (GRmax − GRmin), 0 ≤ IGR ≤ 1</div>
+    <div class="formula">Vsh, Ларионов (древние): 0.33·(2<sup>2·IGR</sup> − 1);  Ларионов (третичные): 0.083·(2<sup>3.7·IGR</sup> − 1);  линейный: Vsh = IGR</div>
+    <div class="formula">PHID = (ρma − RHOB) / (ρma − ρf)</div>
+    <div class="formula">PHIT = (PHID + NPHI) / 2</div>
+    <div class="formula">PHIE = PHIT − Vsh·PHIT<sub>sh</sub>,  PHIE ≥ 0</div>
+    <div class="formula">Sw = ( a·Rw / (PHIE<sup>m</sup>·RT) )<sup>1/n</sup>,  0 ≤ Sw ≤ 1</div>
+    <div class="formula">SOIL = 1 − Sw</div>
+    <div class="formula">Керн: PHIE<sub>ГИС</sub>(z) = среднее PHIE на [z + s − h, z + s + h], h = 0.15; Δ = Кп<sub>керн</sub> − PHIE<sub>ГИС</sub>;  bias = среднее Δ,  RMSE = √(среднее Δ²),  r — Pearson</div>
+    <div class="formula">Коллектор по отсечкам: VSH ≤ отсечки и PHIE ≥ отсечки. Разрывы до 0.3 м склеиваются, интервалы короче 0.3 м отбрасываются</div>
+    <div class="formula">Нетто нефть: сумма шагов выше ВНК, где Vsh ≤ отсечки, PHIE ≥ отсечки и SOIL ≥ отсечки</div>
+    <ul>
+      <li>Значения -999.25 и пропуски не участвуют в расчётах. Там, где PHIE ≤ 0.02, SOIL не считается (на планшете разрыв кривой), это не коллектор.</li>
+      <li>Каверны: при включённой опции точки с CALI больше медианы на 1.5 дюйма исключаются из PHIE и SOIL, так как RHOB и NPHI там искажены.</li>
+      <li>Коэффициенты Ларионова 0.33, 0.083 и 3.7 записаны по памяти, <span class="tbd">нужно подтвердить</span> по вашей методике.</li>
+      <li>NPHI принят в единицах известняка без поправок за литологию и скважину, ρma = 2.65 для песчаника. Если NPHI в процентах, он делится на 100. Подходит ли это вашему разрезу, <span class="tbd">нужно подтвердить</span>.</li>
+      <li>Модель Арчи для чистого коллектора по PHIE: в глинистых песках SOIL может быть завышен или занижен. Rw, a, m, n, PHIT<sub>sh</sub> и отсечки здесь условные, <span class="tbd">нужно подтвердить</span> по керну и воде вашего месторождения.</li>
+      <li>Колонка коллекторов стоит после дорожки SOIL. Левая половина — интервалы по отсечкам ГИС, правая — принятые пласты из таблицы. Кровля, подошва и ВНК правятся числом или кнопками ▲ ▼ с выбранным шагом. Кнопка «Привязать к ГИС» заменяет границы каждого пласта на границы интервалов по отсечкам, которые его пересекают. Заливки PHIE и SOIL рисуются только внутри принятых пластов: выше ВНК зелёные, ниже ВНК синие. Условность параметров склейки и минимальной мощности 0.3 м <span class="tbd">нужно подтвердить</span>.</li>
+      <li>Образцы керна рисуются на глубине «глубина в файле + сдвиг s». Кнопка «Подобрать сдвиг» ищет s от −2.0 до +2.0 с шагом 0.05 по максимуму Pearson между Кп керна и PHIE. В примере истинный сдвиг известен и показан в блоке сопоставления.</li>
+      <li>Керновая пористость обычно полная, а PHIE эффективная, поэтому в глинах керн заведомо выше PHIE. Для оценки качества сопоставления смотрите строку «В пластах». С чем честнее сравнивать керн, с PHIE или PHIT, <span class="tbd">нужно подтвердить</span>. Допуск расхождения 0.04 д.ед. условный, <span class="tbd">нужно подтвердить</span>.</li>
+      <li>DTP принимается из кривых DTP, DT, DTC, DTCO, AC. На расчёты он не влияет, показан для контроля.</li>
+    </ul>
+    <details><summary>Какой LAS ожидается</summary>
+      <p>LAS 2.0, первая кривая — глубина. Нужны GR (для Vsh), RHOB и NPHI (для PHIE), RT (для SOIL), по возможности CALI. Допустимые имена: GR; DTP/DT/DTC; RHOB/RHOZ/DEN; NPHI/TNPH/NPOR; RT/LLD/ILD/RDEP; CALI/CAL. Значение NULL берётся из заголовка и из -999.25.</p>
+    </details>
+  </section>
+</div>
+
+<script>
+/* ============================================================
+   Общие утилиты
+   ============================================================ */
+const NULLV=-999.25;
+const $=id=>document.getElementById(id);
+const clip=(x,a,b)=>Math.min(b,Math.max(a,x));
+const fx=(v,d=2)=>(v===null||v===undefined||!isFinite(v))?'—':Number(v).toFixed(d);
+const isNull=(v,nv)=>!isFinite(v)||Math.abs(v-NULLV)<1e-6||(nv!=null&&isFinite(nv)&&Math.abs(v-nv)<1e-6);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function median(a){const b=[...a].sort((x,y)=>x-y),n=b.length;return n?(n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2):NaN;}
+function pctl(a,q){const b=a.filter(v=>isFinite(v)).sort((x,y)=>x-y);if(!b.length)return NaN;const i=(b.length-1)*q;const lo=Math.floor(i),hi=Math.ceil(i);return b[lo]+(b[hi]-b[lo])*(i-lo);}
+const mean=a=>{const v=a.filter(isFinite);return v.length?v.reduce((s,x)=>s+x,0)/v.length:NaN;};
+const state={L:null,calc:null,truth:false,core:null,coreText:null,cmp:null,trueShift:null,det:[]};
+const ALIASES={GR:['GR','GRC','SGR','GR_EDTC'],DTP:['DTP','DT','DTC','DTCO','AC'],RHOB:['RHOB','RHOZ','DEN','RHOB_C'],NPHI:['NPHI','TNPH','NPOR','NPHI_LS'],
+  RT:['RT','LLD','ILD','RDEP','RESD','AT90'],CALI:['CALI','CAL','HCAL']};
+const DEFUNIT={GR:'gAPI',DTP:'мкс/фт',RHOB:'г/см³',NPHI:'д.ед.',RT:'Ом·м',CALI:'дюйм'};
+
+/* ============================================================
+   LAS
+   ============================================================ */
+function parseLAS(text){
+  const lines=text.split(/\r?\n/);let sec='',nullv=NULLV;const curves=[],buf=[];
+  for(const raw of lines){
+    const t=raw.trim();if(!t||t[0]==='#')continue;
+    if(t[0]==='~'){sec=t[1].toUpperCase();continue;}
+    if(sec==='W'||sec==='V'){const m=t.match(/^NULL\s*\.\s*(\S*)\s+(-?[\d.eE+-]+)/i);if(m)nullv=parseFloat(m[2]);}
+    else if(sec==='C'){const m=t.match(/^([^\s.:]+)\s*\.(\S*)\s*(.*?)\s*:\s*(.*)$/);if(m)curves.push({name:m[1].toUpperCase(),unit:m[2]});}
+    else if(sec==='A'){for(const tok of t.split(/[\s,]+/)){if(tok!=='')buf.push(parseFloat(tok));}}
+  }
+  const nc=curves.length;if(nc<2)throw new Error('не найден раздел ~C с кривыми');
+  const nr=Math.floor(buf.length/nc);if(nr<2)throw new Error('нет данных в разделе ~A');
+  const cols=curves.map(()=>new Float64Array(nr));
+  for(let r=0;r<nr;r++)for(let c=0;c<nc;c++){const v=buf[r*nc+c];cols[c][r]=isNull(v,nullv)?NaN:v;}
+  let order=null;if(cols[0][0]>cols[0][nr-1])order=[...Array(nr).keys()].reverse();
+  const take=a=>order?Float64Array.from(order,i=>a[i]):a;
+  const depth=take(cols[0]);const c={},unit={};
+  for(const [canon,names] of Object.entries(ALIASES)){
+    const k=curves.findIndex((q,i)=>i>0&&names.includes(q.name));
+    if(k>0){c[canon]=take(cols[k]);unit[canon]=curves[k].unit||DEFUNIT[canon];}
+  }
+  if(c.NPHI){const mx=Math.max(...Array.from(c.NPHI).filter(isFinite));if(mx>1.5){c.NPHI=c.NPHI.map(v=>v/100);unit.NPHI='д.ед. (из %)';}}
+  return{depth,n:nr,c,unit,depthUnit:/^f/i.test(curves[0].unit)?'фт':'м'};
+}
+
+/* ============================================================
+   Синтетический пример с ВНК
+   ============================================================ */
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function makeExample(){
+  const R=rng(4242);
+  const gauss=()=>{let u=0;while(!u)u=R();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*R());};
+  const top=3000,step=0.1,n=1001,W=0.08;
+  const SANDS=[{t:3010,b:3020,phi:.24,vcl:.07,wnk:3016},{t:3040,b:3050,phi:.19,vcl:.12,wnk:3046},{t:3085,b:3095,phi:.16,vcl:.14,wnk:3092}];
+  const SH={phi:.08,vcl:.55};
+  const ar=(rho,sd)=>{const a=new Float64Array(n);let p=gauss();for(let i=0;i<n;i++){p=rho*p+Math.sqrt(1-rho*rho)*gauss();a[i]=p*sd;}return a;};
+  const eP=ar(.85,1),eV=ar(.9,.04),eS=ar(.9,.03);
+  const depth=new Float64Array(n),phi=new Float64Array(n),vcl=new Float64Array(n),sw=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const z=Math.round((top+i*step)*100)/100;depth[i]=z;
+    let pm=SH.phi,vm=SH.vcl,wsum=0;
+    for(const s of SANDS){const w=0.5*(Math.tanh((z-s.t)/W)-Math.tanh((z-s.b)/W));pm+=w*(s.phi-SH.phi);vm+=w*(s.vcl-SH.vcl);wsum+=w;}
+    if(z>=3085&&z<=3095&&Math.floor((z-3085)/2.5)%2===1)pm-=.04;
+    phi[i]=clip(pm-0.0002*(z-top)+eP[i]*(wsum>.5?.02:.015),.02,.32);
+    vcl[i]=clip(vm-.5*(phi[i]-pm)+eV[i],0,.8);
+    const s=SANDS.find(q=>z>=q.t&&z<=q.b);
+    if(s){const h=s.wnk-z,swi=clip(.9-3*phi[i],.12,.6);sw[i]=h<=0?1:clip(swi+(1-swi)*Math.exp(-h/0.7)+eS[i]*.3,swi*.8,1);}
+    else sw[i]=1;
+  }
+  const Rw=0.05,GR=new Float64Array(n),RHOB=new Float64Array(n),NPHI=new Float64Array(n),DTP=new Float64Array(n),RT=new Float64Array(n),CALI=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    GR[i]=20+110*vcl[i]+gauss()*4+3;
+    RHOB[i]=2.65*(1-phi[i])+1.0*phi[i]+gauss()*.012+.01;
+    NPHI[i]=phi[i]+.12*vcl[i]+gauss()*.008+.005;
+    DTP[i]=55.5+(189-55.5)*phi[i]+20*vcl[i]+gauss()*1.5;
+    const rta=Rw/(phi[i]**2*sw[i]**2)*Math.exp(gauss()*.06);
+    RT[i]=1/(1/rta+0.4*vcl[i]);
+    CALI[i]=8.5+gauss()*.04;
+    const z=depth[i];
+    for(const w of [[3035,3036.5],[3071,3072.2]])if(z>=w[0]&&z<=w[1]){CALI[i]+=2.5;RHOB[i]-=.25;NPHI[i]+=.08;}
+    if(z>=3052&&z<=3052.6){GR[i]=RHOB[i]=NPHI[i]=DTP[i]=RT[i]=CALI[i]=NaN;}
+    if(z>=3068&&z<=3069)RT[i]=NaN;
+  }
+  // керн: 95 образцов (по 25 в песках, 20 в глинах), запись глубины смещена на -0.30 м
+  const TRUE_SHIFT=0.30,zs=[];
+  SANDS.forEach(q=>{for(let k=0;k<25;k++)zs.push(q.t+.2+R()*(q.b-q.t-.4));});
+  const SHI=[[3000.3,3009.8],[3020.2,3039.8],[3050.2,3084.8],[3095.2,3099.7]];
+  for(let k=0;k<20;k++){const iv=SHI[Math.floor(R()*SHI.length)];zs.push(iv[0]+R()*(iv[1]-iv[0]));}
+  zs.sort((a,b)=>a-b);
+  const core=zs.map((z,k)=>{const zz=Math.round(z*100)/100,ix=Math.round((zz-top)/step);
+    return{id:'C-'+String(k+1).padStart(3,'0'),d:Math.round((zz-TRUE_SHIFT)*100)/100,phi:phi[ix]+gauss()*.004};});
+  const pool=[...core.keys()];for(let i=pool.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  for(let q=0;q<3;q++){const c=core[pool[q]];c.phi=clip(c.phi+(R()<.5?-1:1)*(.05+R()*.03),.01,.4);}
+  for(let q=3;q<5;q++)core[pool[q]].phi=NaN;
+  return{L:{depth,n,depthUnit:'м',c:{GR,DTP,RHOB,NPHI,RT,CALI},unit:{...DEFUNIT}},layers:SANDS.map(s=>({t:s.t,b:s.b,w:s.wnk})),core,trueShift:TRUE_SHIFT};
+}
+
+/* ============================================================
+   Параметры и расчёт
+   ============================================================ */
+function layerRowsInit(){
+  const cell=id=>`<td><span class="nud"><button class="nb" data-id="${id}" data-s="-1" title="выше" aria-label="выше">▲</button><input type="number" step="0.1" id="${id}"><button class="nb" data-id="${id}" data-s="1" title="ниже" aria-label="ниже">▼</button></span></td>`;
+  $('layerRows').innerHTML=[1,2,3].map(i=>`<tr><td>Пласт ${i}</td>${cell('lt'+i)}${cell('lb'+i)}${cell('lw'+i)}</tr>`).join('');
+  [1,2,3].forEach(i=>['lt','lb','lw'].forEach(k=>$(k+i).oninput=update));
+  $('layerRows').onclick=e=>{
+    const b=e.target&&e.target.closest?e.target.closest('button.nb'):null;if(!b)return;
+    const inp=$(b.dataset.id),st=parseFloat($('nudge').value)||0.1;
+    const v=(parseFloat(inp.value)||0)+(+b.dataset.s)*st;inp.value=(Math.round(v*100)/100).toFixed(2);update();
+  };
+}
+function renderLayerMsg(){
+  const msgs=[],ok=[];
+  [1,2,3].forEach(i=>{
+    const t=parseFloat($('lt'+i).value),b=parseFloat($('lb'+i).value),w=parseFloat($('lw'+i).value);
+    if(!isFinite(t)||!isFinite(b)){msgs.push(`Пласт ${i}: задайте кровлю и подошву.`);return;}
+    if(b<=t){msgs.push(`Пласт ${i}: подошва должна быть глубже кровли, пласт не учитывается.`);return;}
+    if(isFinite(w)&&(w<t||w>b))msgs.push(`Пласт ${i}: ВНК ${fx(w,2)} вне интервала ${fx(t,2)}–${fx(b,2)}.`);
+    ok.push({i,t,b});
+  });
+  ok.sort((a,b)=>a.t-b.t);
+  for(let k=1;k<ok.length;k++)if(ok[k].t<ok[k-1].b)msgs.push(`Пласты ${ok[k-1].i} и ${ok[k].i} пересекаются.`);
+  $('layerMsg').innerHTML=msgs.map(m=>`<div class="msg warn">${m}</div>`).join('');
+}
+function detectRes(L,K,P){
+  if(!K||!K.VSH||!K.PHIE)return[];
+  const D=L.depth,n=L.n,step=(D[n-1]-D[0])/(n-1),gapMax=Math.max(1,Math.round(0.3/step)),minN=Math.max(2,Math.round(0.3/step));
+  const ok=new Uint8Array(n);for(let i=0;i<n;i++)ok[i]=(K.VSH[i]<=P.cutV&&K.PHIE[i]>=P.cutP)?1:0;
+  const runs=[];let i=0;
+  while(i<n){
+    if(!ok[i]){i++;continue;}
+    let a=i,b=i,gap=0,j=i+1;
+    while(j<n){if(ok[j]){b=j;gap=0;}else{gap++;if(gap>gapMax)break;}j++;}
+    if(b-a+1>=minN)runs.push({t:D[a],b:D[b]});
+    i=b+1;
+  }
+  return runs;
+}
+function snapLayers(){
+  const det=state.det;
+  if(!det||!det.length){setStatus('Коллекторов по отсечкам не найдено: проверьте отсечки Vsh и PHIE и наличие расчёта PHIE.','warn');return;}
+  const ch=[];
+  [1,2,3].forEach(i=>{
+    const t=parseFloat($('lt'+i).value),b=parseFloat($('lb'+i).value);if(!isFinite(t)||!isFinite(b)||b<=t)return;
+    const ov=det.filter(r=>r.b>=t&&r.t<=b);
+    if(!ov.length){ch.push(`пласт ${i}: коллекторов по отсечкам в ${fx(t,2)}–${fx(b,2)} нет, границы не менялись`);return;}
+    const nt=Math.min(...ov.map(r=>r.t)),nb=Math.max(...ov.map(r=>r.b));
+    $('lt'+i).value=nt.toFixed(2);$('lb'+i).value=nb.toFixed(2);
+    ch.push(`пласт ${i}: ${fx(t,2)}–${fx(b,2)} → ${fx(nt,2)}–${fx(nb,2)}`);
+  });
+  update();
+  setStatus('Границы привязаны к интервалам по отсечкам. '+ch.join('; ')+'. ВНК не менялся, проверьте его положение.','good');
+}
+function setLayers(ls){ls.forEach((l,i)=>{$('lt'+(i+1)).value=l.t;$('lb'+(i+1)).value=l.b;$('lw'+(i+1)).value=l.w;});}
+function readLayers(){
+  return [1,2,3].map(i=>({i,t:parseFloat($('lt'+i).value),b:parseFloat($('lb'+i).value),w:parseFloat($('lw'+i).value)})).filter(l=>isFinite(l.t)&&isFinite(l.b)&&l.b>l.t);
+}
+function readP(){
+  const v=id=>parseFloat($(id).value);
+  return{grmin:v('grmin'),grmax:v('grmax'),vm:$('vm').value,rma:v('rma'),rf:v('rf'),phitsh:v('phitsh'),auto:$('phitshAuto').checked,
+    rw:v('rw'),a:v('ea'),m:v('em'),n:v('en'),cutV:v('cutV'),cutP:v('cutP'),cutS:v('cutS'),mask:$('maskCal').checked};
+}
+function autoGR(){
+  const L=state.L;if(!L||!L.c.GR)return;
+  $('grmin').value=pctl(Array.from(L.c.GR),0.05).toFixed(1);$('grmax').value=pctl(Array.from(L.c.GR),0.95).toFixed(1);
+}
+function vshFrom(igr,m){
+  if(m==='lin')return igr;
+  if(m==='ter')return 0.083*(Math.pow(2,3.7*igr)-1);
+  return 0.33*(Math.pow(2,2*igr)-1);
+}
+function calc(L,P){
+  const n=L.n,c=L.c,out={n,msg:[]};
+  const mk=()=>new Float64Array(n).fill(NaN);
+  if(!c.GR){out.msg.push('Нет кривой GR: VSH не рассчитан.');return out;}
+  if(!(P.grmax>P.grmin)){out.msg.push('GRmax должен быть больше GRmin.');return out;}
+  out.IGR=mk();out.VSH=mk();
+  for(let i=0;i<n;i++){const g=c.GR[i];if(g===g){out.IGR[i]=clip((g-P.grmin)/(P.grmax-P.grmin),0,1);out.VSH[i]=clip(vshFrom(out.IGR[i],P.vm),0,1);}}
+  let bad=new Uint8Array(n);
+  if(P.mask&&c.CALI){const base=median(Array.from(c.CALI).filter(isFinite));for(let i=0;i<n;i++)if(c.CALI[i]===c.CALI[i]&&c.CALI[i]>base+1.5)bad[i]=1;}
+  out.bad=bad;
+  if(!c.RHOB||!c.NPHI){out.msg.push('Нет RHOB и/или NPHI: PHIE и SOIL не рассчитаны.');return out;}
+  out.PHID=mk();out.PHIT=mk();out.PHIE=mk();
+  for(let i=0;i<n;i++){const pd=(P.rma-c.RHOB[i])/(P.rma-P.rf),pn=c.NPHI[i];if(isFinite(pd)&&pn===pn&&!bad[i]){out.PHID[i]=pd;out.PHIT[i]=(pd+pn)/2;}}
+  let tsh=P.phitsh;
+  if(P.auto){const v=[];for(let i=0;i<n;i++)if(out.IGR[i]>=0.8&&out.PHIT[i]===out.PHIT[i])v.push(out.PHIT[i]);if(v.length>=5)tsh=median(v);}
+  out.phitsh=tsh;
+  for(let i=0;i<n;i++)if(out.PHIT[i]===out.PHIT[i]&&out.VSH[i]===out.VSH[i])out.PHIE[i]=Math.max(0,out.PHIT[i]-out.VSH[i]*tsh);
+  if(!c.RT){out.msg.push('Нет кривой RT: SOIL не рассчитан.');return out;}
+  out.SW=mk();out.SOIL=mk();
+  for(let i=0;i<n;i++){
+    const pe=out.PHIE[i],rt=c.RT[i];
+    if(pe>0.02&&rt>0){const sw=clip(Math.pow(P.a*P.rw/(Math.pow(pe,P.m)*rt),1/P.n),0,1);out.SW[i]=sw;out.SOIL[i]=1-sw;}
+  }
+  return out;
+}
+function summarize(L,K,P,layers){
+  const D=L.depth,step=D.length>1?(D[D.length-1]-D[0])/(D.length-1):0.1;
+  return layers.map(l=>{
+    const oil=[],wat=[];
+    for(let i=0;i<L.n;i++){if(D[i]<l.t||D[i]>l.b)continue;(isFinite(l.w)&&D[i]>=l.w?wat:oil).push(i);}
+    const g=(arr,key)=>mean(arr.map(i=>K[key]?K[key][i]:NaN));
+    let net=0;oil.forEach(i=>{if(K.VSH&&K.PHIE&&K.SOIL&&K.VSH[i]<=P.cutV&&K.PHIE[i]>=P.cutP&&K.SOIL[i]>=P.cutS)net+=step;});
+    return{i:l.i,t:l.t,b:l.b,w:l.w,thick:l.b-l.t,oilThick:isFinite(l.w)?Math.max(0,Math.min(l.b,l.w)-l.t):l.b-l.t,
+      vsh:g(oil,'VSH'),phie:g(oil,'PHIE'),soil:g(oil,'SOIL'),soilW:g(wat,'SOIL'),net,nOil:oil.length,nWat:wat.length};
+  });
+}
+
+/* ============================================================
+   Дорожки планшета (общие для Plotly и SVG)
+   ============================================================ */
+function buildTracks(){
+  const L=state.L,K=state.calc,c=L.c,u=L.unit,T=[];
+  const un=k=>u[k]||DEFUNIT[k];
+  const layers=readLayers();
+  const zonesOf=(oilC,watC)=>{const z=[];layers.forEach(l=>{const wl=isFinite(l.w)?clip(l.w,l.t,l.b):l.b;z.push({a:l.t,b:wl,c:oilC});if(wl<l.b&&watC)z.push({a:wl,b:l.b,c:watC});});return z;};
+  if(c.GR)T.push({lines:[{t:`GR, ${un('GR')}`,y:c.GR,color:'#2d8f3c',xr:[0,150]}]});
+  if(c.DTP)T.push({lines:[{t:`DTP, ${un('DTP')}`,y:c.DTP,color:'#7c3aed',xr:[40,140]}]});
+  if(c.RHOB&&c.NPHI)T.push({lines:[{t:`RHOB, ${un('RHOB')}`,y:c.RHOB,color:'#c2410c',xr:[1.95,2.95]},{t:`NPHI, ${un('NPHI')}`,y:c.NPHI,color:'#2563eb',xr:[0.45,-0.15]}]});
+  else{if(c.RHOB)T.push({lines:[{t:`RHOB, ${un('RHOB')}`,y:c.RHOB,color:'#c2410c',xr:[1.95,2.95]}]});if(c.NPHI)T.push({lines:[{t:`NPHI, ${un('NPHI')}`,y:c.NPHI,color:'#2563eb',xr:[0.45,-0.15]}]});}
+  if(c.RT)T.push({lines:[{t:`RT, ${un('RT')}`,y:c.RT,color:'#a16207',xr:[0.1,1000],log:true}]});
+  if(K.VSH)T.push({lines:[{t:'VSH, д.ед.',y:K.VSH,color:'#8a6a3b',xr:[0,1],fill:'rgba(160,120,70,.45)'}]});
+  if(K.PHIE)T.push({lines:[{t:'PHIE, д.ед.',y:K.PHIE,color:'#0f6b7a',xr:[0,0.35],zones:zonesOf('rgba(60,160,80,.45)','rgba(60,120,220,.45)'),pts:(state.cmp&&$('showCore').checked)?state.cmp.rows:null}]});
+  if(K.SOIL)T.push({lines:[{t:'SOIL, д.ед.',y:K.SOIL,color:'#15803d',xr:[0,1],zones:zonesOf('rgba(60,160,80,.45)',null)}]});
+  T.push({res:true,lines:[{t:'Коллекторы',y:null,color:'#555555',xr:[0,1],dummy:true}]});
+  return T;
+}
+function dec(L){return Math.max(1,Math.ceil(L.n/4000));}
+
+/* ---------- Plotly ---------- */
+function renderPlotly(T,layers){
+  const L=state.L,D=L.depth,du=L.depthUnit,st=dec(L);
+  const y0=D[0],y1=D[L.n-1],N=T.length,gap=0.012,w=(1-gap*(N-1))/N;
+  const data=[],layout={paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',font:{color:css('--ink'),size:12},
+    margin:{l:70,r:96,t:84,b:70},showlegend:false,shapes:[],annotations:[],hovermode:'closest'};
+  const ys=[],zs=[];for(let i=0;i<L.n;i+=st){ys.push(D[i]);zs.push(i);}
+  let ax=0;
+  T.forEach((t,i)=>{
+    const ysuf=i?String(i+1):'';let prim=0;
+    t.lines.forEach((ln,j)=>{
+      ax++;const xs=ax===1?'':String(ax);if(j===0)prim=ax;
+      const xaxis={range:ln.xr,tickfont:{size:10,color:ln.color},linecolor:ln.color,gridcolor:css('--line'),showgrid:j===0,zeroline:false,anchor:'y'+ysuf,
+        side:j===0?'top':'bottom',type:ln.log?'log':'linear',automargin:false};
+      if(ln.log)xaxis.range=[Math.log10(ln.xr[0]),Math.log10(ln.xr[1])];
+      if(j===0)xaxis.domain=[i*(w+gap),i*(w+gap)+w];else xaxis.overlaying='x'+(prim===1?'':prim);
+      layout['xaxis'+xs]=xaxis;
+      if(ln.dummy){xaxis.showticklabels=false;xaxis.showgrid=false;data.push({type:'scatter',mode:'markers',x:[null],y:[null],xaxis:'x'+xs,yaxis:'y'+ysuf,hoverinfo:'skip'});}
+      else{
+      if(ln.zones)ln.zones.forEach(z=>{const xv=[],yv=[];zs.forEach(k=>{if(D[k]>=z.a&&D[k]<=z.b){const v=ln.y[k];xv.push(v===v?v:null);yv.push(D[k]);}});
+        if(xv.length)data.push({type:'scatter',mode:'lines',x:xv,y:yv,xaxis:'x'+xs,yaxis:'y'+ysuf,line:{width:0,color:z.c},fill:'tozerox',fillcolor:z.c,connectgaps:false,hoverinfo:'skip'});});
+      const vals=zs.map(k=>{const v=ln.y[k];return v===v?v:null;});
+      data.push({type:'scatter',mode:'lines',x:vals,y:ys,xaxis:'x'+xs,yaxis:'y'+ysuf,line:{color:ln.color,width:1.3},connectgaps:false,
+        fill:ln.fill?'tozerox':'none',fillcolor:ln.fill||undefined,hovertemplate:`${ln.t.split(',')[0]}=%{x:.3g}<br>Гл.=%{y:.2f} ${du}<extra></extra>`});
+      if(ln.pts){
+        const q=ln.pts.filter(r=>r.phi===r.phi);
+        data.push({type:'scatter',mode:'markers',x:q.map(r=>r.phi),y:q.map(r=>r.zc),xaxis:'x'+xs,yaxis:'y'+ysuf,
+          marker:{size:7,color:q.map(r=>r.bad?'#d1242f':'#f59e0b'),line:{color:'#14202b',width:1}},text:q.map(r=>`${r.id}: Кп керна ${r.phi.toFixed(3)}, PHIE ${isFinite(r.pe)?r.pe.toFixed(3):'—'}`),
+          hovertemplate:`%{text}<br>Гл. (со сдвигом)=%{y:.2f} ${du}<extra></extra>`});
+      }
+      }
+      layout.annotations.push({xref:'paper',yref:'paper',x:i*(w+gap)+w/2,y:j===0?1.055+0.0*j:-0.05,xanchor:'center',yanchor:j===0?'bottom':'top',showarrow:false,
+        text:`<b>${ln.t}</b>`+(ln.pts?'<br><span style="color:#d97706">● Кп керна</span>':'')+(ln.dummy?'<br><span style="font-size:10px">ГИС | принято</span>':''),font:{size:11,color:ln.color}});
+    });
+    layout['yaxis'+ysuf]={domain:[0,1],anchor:'x'+(prim===1?'':prim),range:[y1,y0],showticklabels:i===0,gridcolor:css('--line'),linecolor:css('--muted'),
+      title:i===0?{text:`Глубина, ${du}`,font:{size:12}}:undefined,tickfont:{size:11}};
+    if(i)layout['yaxis'+ysuf].matches='y';
+  });
+  // колонка коллекторов
+  const ri=T.findIndex(q=>q.res);
+  if(ri>=0){
+    const cx=ri*(w+gap);
+    layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:cx,x1:cx+w,y0:y0,y1:y1,fillcolor:'rgba(140,140,140,.10)',line:{width:0},layer:'below'});
+    (state.det||[]).forEach(r=>layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:cx+w*0.04,x1:cx+w*0.48,y0:r.t,y1:r.b,fillcolor:'rgba(21,128,61,.55)',line:{color:'#15803d',width:1}}));
+    layers.forEach(l=>{
+      const wl=isFinite(l.w)?clip(l.w,l.t,l.b):l.b,xa=cx+w*0.52,xb=cx+w*0.96;
+      layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:xa,x1:xb,y0:l.t,y1:wl,fillcolor:'rgba(60,160,80,.65)',line:{color:css('--ink'),width:1}});
+      if(wl<l.b)layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:xa,x1:xb,y0:wl,y1:l.b,fillcolor:'rgba(60,120,220,.65)',line:{color:css('--ink'),width:1}});
+      layout.annotations.push({xref:'paper',yref:'y',x:(xa+xb)/2,y:(l.t+l.b)/2,xanchor:'center',yanchor:'middle',showarrow:false,text:`<b>П${l.i}</b>`,font:{size:11,color:'#ffffff'}});
+    });
+  }
+  // пласты и ВНК
+  layers.forEach(l=>{
+    layout.shapes.push({type:'line',xref:'paper',yref:'y',x0:0,x1:1,y0:l.t,y1:l.t,line:{color:css('--muted'),width:1,dash:'dot'}},{type:'line',xref:'paper',yref:'y',x0:0,x1:1,y0:l.b,y1:l.b,line:{color:css('--muted'),width:1,dash:'dot'}});
+    const wl=isFinite(l.w)?clip(l.w,l.t,l.b):l.b;
+    layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:0,x1:1,y0:l.t,y1:wl,fillcolor:'rgba(60,160,80,.12)',line:{width:0},layer:'below'});
+    if(wl<l.b)layout.shapes.push({type:'rect',xref:'paper',yref:'y',x0:0,x1:1,y0:wl,y1:l.b,fillcolor:'rgba(60,120,220,.14)',line:{width:0},layer:'below'});
+    if(isFinite(l.w)&&l.w>=l.t&&l.w<=l.b){
+      layout.shapes.push({type:'line',xref:'paper',yref:'y',x0:0,x1:1,y0:l.w,y1:l.w,line:{color:'#c2410c',width:1.6,dash:'dash'}});
+      layout.annotations.push({xref:'paper',yref:'y',x:1.004,y:l.w,xanchor:'left',yanchor:'middle',showarrow:false,text:`<b>ВНК ${fx(l.w,1)}</b>`,font:{size:11,color:'#c2410c'}});
+    }
+    layout.annotations.push({xref:'paper',yref:'y',x:1.004,y:l.t,xanchor:'left',yanchor:'top',showarrow:false,text:`Пласт ${l.i}`,font:{size:11,color:css('--muted')}});
+  });
+  Plotly.react('plate',data,layout,{responsive:true,displaylogo:false}).catch(()=>{useSvg=true;showSvg(true);renderSVG(T,layers);});
+}
+
+/* ---------- запасной SVG ---------- */
+function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p;return(f<1.5?1:f<3?2:f<7?5:10)*p;}
+function renderSVG(T,layers){
+  const L=state.L,D=L.depth,du=L.depthUnit,st=dec(L);
+  const W=1100,H=900,m={l:62,r:96,t:74,b:56},N=T.length,gap=10,tw=(W-m.l-m.r-gap*(N-1))/N,y0=D[0],y1=D[L.n-1];
+  const Y=z=>m.t+(z-y0)/(y1-y0)*(H-m.t-m.b),xr=W-m.r;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Планшет ГИС" style="color:var(--ink)"><g font-size="11" fill="currentColor">`;
+  layers.forEach(l=>{const wl=isFinite(l.w)?clip(l.w,l.t,l.b):l.b;
+    s+=`<rect x="${m.l}" y="${Y(l.t)}" width="${xr-m.l}" height="${Math.max(0,Y(wl)-Y(l.t))}" fill="rgba(60,160,80,.12)"/>`;
+    if(wl<l.b)s+=`<rect x="${m.l}" y="${Y(wl)}" width="${xr-m.l}" height="${Y(l.b)-Y(wl)}" fill="rgba(60,120,220,.14)"/>`;});
+  const stp=niceStep((y1-y0)/10);
+  for(let z=Math.ceil(y0/stp)*stp;z<=y1+1e-9;z+=stp)s+=`<line x1="${m.l}" x2="${xr}" y1="${Y(z)}" y2="${Y(z)}" stroke="var(--line)"/><text x="${m.l-6}" y="${Y(z)+4}" text-anchor="end">${+z.toFixed(1)}</text>`;
+  s+=`<text transform="translate(14 ${(H+m.t-m.b)/2}) rotate(-90)" text-anchor="middle" font-size="12">Глубина, ${du}</text>`;
+  T.forEach((t,i)=>{
+    const x0=m.l+i*(tw+gap);
+    s+=`<rect x="${x0}" y="${m.t}" width="${tw}" height="${H-m.t-m.b}" fill="none" stroke="var(--muted)"/>`;
+    t.lines.forEach((ln,j)=>{
+      if(ln.dummy){
+        s+=`<rect x="${x0}" y="${m.t}" width="${tw}" height="${H-m.t-m.b}" fill="rgba(140,140,140,.10)"/>`;
+        (state.det||[]).forEach(r=>{s+=`<rect x="${x0+tw*0.04}" y="${Y(r.t)}" width="${tw*0.44}" height="${Math.max(1,Y(r.b)-Y(r.t))}" fill="rgba(21,128,61,.55)" stroke="#15803d"/>`;});
+        layers.forEach(l=>{const wl=isFinite(l.w)?clip(l.w,l.t,l.b):l.b,xa=x0+tw*0.52,ww=tw*0.44;
+          s+=`<rect x="${xa}" y="${Y(l.t)}" width="${ww}" height="${Math.max(0,Y(wl)-Y(l.t))}" fill="rgba(60,160,80,.65)" stroke="currentColor"/>`;
+          if(wl<l.b)s+=`<rect x="${xa}" y="${Y(wl)}" width="${ww}" height="${Y(l.b)-Y(wl)}" fill="rgba(60,120,220,.65)" stroke="currentColor"/>`;
+          s+=`<text x="${xa+ww/2}" y="${(Y(l.t)+Y(l.b))/2+4}" text-anchor="middle" font-weight="700" fill="#ffffff">П${l.i}</text>`;});
+        s+=`<text x="${x0+tw/2}" y="${m.t-18}" text-anchor="middle" font-weight="700">Коллекторы</text><text x="${x0+tw/2}" y="${m.t-6}" text-anchor="middle" font-size="10">ГИС | принято</text>`;
+        return;
+      }
+      const lg=ln.log,r0=lg?Math.log10(ln.xr[0]):ln.xr[0],r1=lg?Math.log10(ln.xr[1]):ln.xr[1];
+      const X=v=>x0+((lg?Math.log10(v):v)-r0)/(r1-r0)*tw;
+      if(j===0)for(let q=1;q<4;q++)s+=`<line x1="${x0+q*tw/4}" x2="${x0+q*tw/4}" y1="${m.t}" y2="${H-m.b}" stroke="var(--line)"/>`;
+      const lab=[ln.xr[0],ln.xr[1]].map(v=>+Number(v).toPrecision(3));
+      s+=`<text x="${x0+2}" y="${j===0?m.t-4:H-m.b+13}" fill="${ln.color}" font-size="10">${lab[0]}</text><text x="${x0+tw-2}" y="${j===0?m.t-4:H-m.b+13}" text-anchor="end" fill="${ln.color}" font-size="10">${lab[1]}</text>`;
+      s+=`<text x="${x0+tw/2}" y="${j===0?m.t-18:H-m.b+28}" text-anchor="middle" font-weight="700" fill="${ln.color}">${ln.t}</text>`;
+      const segs=[];let cur=[];
+      for(let k=0;k<L.n;k+=st){const v=ln.y[k];if(v===v&&(!lg||v>0)){cur.push([clip(X(v),x0,x0+tw),Y(D[k])]);}else if(cur.length){segs.push(cur);cur=[];}}
+      if(cur.length)segs.push(cur);
+      const bx=clip(X(Math.max(0,lg?ln.xr[0]:0)),x0,x0+tw);
+      if(ln.zones)ln.zones.forEach(z=>{let c2=[];const fl=()=>{if(c2.length>1)s+=`<polygon points="${[[bx,c2[0][1]],...c2,[bx,c2[c2.length-1][1]]].map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}" fill="${z.c}" stroke="none"/>`;c2=[];};
+        for(let k=0;k<L.n;k+=st){if(D[k]<z.a||D[k]>z.b){fl();continue;}const v=ln.y[k];if(v===v)c2.push([clip(X(v),x0,x0+tw),Y(D[k])]);else fl();}fl();});
+      segs.forEach(sg=>{
+        if(ln.fill)s+=`<polygon points="${[[bx,sg[0][1]],...sg,[bx,sg[sg.length-1][1]]].map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}" fill="${ln.fill}" stroke="none"/>`;
+        s+=`<polyline points="${sg.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}" fill="none" stroke="${ln.color}" stroke-width="1.3"/>`;
+      });
+      if(ln.pts){
+        s+=`<text x="${x0+tw/2}" y="${m.t-32}" text-anchor="middle" fill="#d97706" font-size="11">● Кп керна</text>`;
+        ln.pts.forEach(r=>{if(r.phi===r.phi&&r.zc>=y0&&r.zc<=y1)s+=`<circle cx="${clip(X(r.phi),x0,x0+tw).toFixed(1)}" cy="${Y(r.zc).toFixed(1)}" r="3.8" fill="${r.bad?'#d1242f':'#f59e0b'}" stroke="#14202b" stroke-width="0.8"><title>${r.id}: Кп керна ${r.phi.toFixed(3)}</title></circle>`;});
+      }
+    });
+  });
+  layers.forEach(l=>{
+    s+=`<line x1="${m.l}" x2="${xr}" y1="${Y(l.t)}" y2="${Y(l.t)}" stroke="var(--muted)" stroke-dasharray="2 3"/><line x1="${m.l}" x2="${xr}" y1="${Y(l.b)}" y2="${Y(l.b)}" stroke="var(--muted)" stroke-dasharray="2 3"/>`;
+    if(isFinite(l.w)&&l.w>=l.t&&l.w<=l.b)s+=`<line x1="${m.l}" x2="${xr}" y1="${Y(l.w)}" y2="${Y(l.w)}" stroke="#c2410c" stroke-width="1.6" stroke-dasharray="7 5"/><text x="${xr+4}" y="${Y(l.w)+4}" fill="#c2410c" font-weight="700">ВНК ${fx(l.w,1)}</text>`;
+    s+=`<text x="${xr+4}" y="${Y(l.t)+12}" fill="var(--muted)">Пласт ${l.i}</text>`;
+  });
+  s+='</g></svg>';
+  $('plateSvg').innerHTML=s;
+}
+let useSvg=false,svgTimer=null;
+function showSvg(on){
+  $('plate').style.display=on?'none':'';$('plateSvg').style.display=on?'':'none';
+  $('plateMode').textContent=on?'Показан запасной вариант планшета (Plotly не загрузился или не отрисовался). Расчёты те же.':'';
+}
+function renderPlate(){
+  const L=state.L,K=state.calc;
+  if(!L||!K){$('plate-msg').innerHTML='<div class="msg">Загрузите LAS или откройте пример.</div>';$('plate-wrap').style.display='none';return;}
+  $('plate-msg').innerHTML=K.msg.map(m=>`<div class="msg warn">${m}</div>`).join('');
+  $('plate-wrap').style.display='';
+  const T=buildTracks(),layers=readLayers();
+  if(!T.length){$('plate-wrap').style.display='none';return;}
+  if(typeof Plotly==='undefined'||useSvg){useSvg=true;showSvg(true);renderSVG(T,layers);return;}
+  showSvg(false);
+  try{renderPlotly(T,layers);}catch(e){useSvg=true;showSvg(true);renderSVG(T,layers);return;}
+  clearTimeout(svgTimer);
+  svgTimer=setTimeout(()=>{if(!document.querySelector('#plate .main-svg')){useSvg=true;showSvg(true);renderSVG(T,layers);}},1500);
+}
+
+/* ============================================================
+   Таблица итогов
+   ============================================================ */
+function renderSummary(){
+  const L=state.L,K=state.calc;
+  if(!L||!K||!K.VSH){$('sumTable').innerHTML='';$('vnkCheck').innerHTML='';$('sum-msg').innerHTML='<div class="msg">Нужен расчёт VSH, PHIE и SOIL.</div>';return;}
+  $('sum-msg').innerHTML='';
+  const P=readP(),layers=readLayers(),du=L.depthUnit;
+  if(!layers.length){$('sumTable').innerHTML='';$('sum-msg').innerHTML='<div class="msg warn">Задайте кровлю и подошву пластов (подошва больше кровли).</div>';$('vnkCheck').innerHTML='';return;}
+  const S=summarize(L,K,P,layers);
+  const head=['Пласт',`Кровля–подошва, ${du}`,`Мощность, ${du}`,`ВНК, ${du}`,`Нефтяная часть, ${du}`,'VSH ср. (нефт.)','PHIE ср. (нефт.)','SOIL ср. (нефт.)','SOIL ср. (вода)',`Нетто нефть, ${du}`];
+  const rows=S.map(r=>[`Пласт ${r.i}`,`${fx(r.t,1)}–${fx(r.b,1)}`,fx(r.thick,1),fx(r.w,1),fx(r.oilThick,1),fx(r.vsh,2),fx(r.phie,3),fx(r.soil,2),fx(r.soilW,2),fx(r.net,1)]);
+  $('sumTable').innerHTML=`<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>
+   <p class="note">«Нефтяная часть» — от кровли до ВНК. Средние считаются по точкам без пропусков и каверн. Отсечки для «Нетто нефть»: VSH ≤ ${P.cutV}, PHIE ≥ ${P.cutP}, SOIL ≥ ${P.cutS}, они условные, <span class="tbd">нужно подтвердить</span>.</p>`;
+  let chk='';
+  S.forEach(r=>{
+    if(!isFinite(r.w)||r.w<r.t||r.w>r.b){chk+=`<div class="msg warn">Пласт ${r.i}: ВНК ${fx(r.w,1)} вне интервала ${fx(r.t,1)}–${fx(r.b,1)}, пласт считается целиком ${r.w>=r.b?'нефтяным':'водяным'}.</div>`;return;}
+    if(!isFinite(r.soil)||!isFinite(r.soilW)){chk+=`<div class="msg warn">Пласт ${r.i}: мало точек с рассчитанным SOIL выше или ниже ВНК, сравнить нельзя.</div>`;return;}
+    const d=r.soil-r.soilW;
+    chk+=`<div class="msg ${d>=0.3?'good':'warn'}">Пласт ${r.i}: SOIL выше ВНК ${fx(r.soil,2)}, ниже ВНК ${fx(r.soilW,2)}, разница ${fx(d,2)}. ${d>=0.3?'ВНК по каротажу подтверждается.':'ВНК по каротажу выражен слабо (порог разницы 0.3 условный, нужно подтвердить).'}</div>`;
+  });
+  $('vnkCheck').innerHTML=chk;
+}
+
+/* ============================================================
+   Керн: чтение, сопоставление, сдвиг
+   ============================================================ */
+function pearson(x,y){const n=x.length;if(n<3)return NaN;const mx=mean(x),my=mean(y);let a=0,b=0,c=0;
+  for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;a+=dx*dy;b+=dx*dx;c+=dy*dy;}return(b>0&&c>0)?a/Math.sqrt(b*c):NaN;}
+function lowerBound(arr,v){let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<v)lo=m+1;else hi=m;}return lo;}
+function windowMean(arr,D,z,h){let i=lowerBound(D,z-h),s=0,c=0;for(;i<D.length&&D[i]<=z+h;i++){const v=arr[i];if(v===v){s+=v;c++;}}return c?s/c:NaN;}
+function parseCoreCSV(text,unitMode){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim()&&!l.trim().startsWith('#'));
+  if(lines.length<2)throw new Error('в CSV нет строк с данными');
+  const head=lines[0],cnt=d=>head.split(d).length-1;
+  const delim=[';','\t',','].sort((a,b)=>cnt(b)-cnt(a))[0];
+  const cl=q=>q.trim().replace(/^"|"$/g,'');
+  const names=head.split(delim).map(q=>cl(q).toUpperCase().replace(/\s*[\(\[,].*$/,''));
+  const find=al=>names.findIndex(n=>al.includes(n));
+  const iD=find(['DEPTH','DEPT','MD','ГЛУБИНА']),iP=find(['PHI','POR','POROSITY','KP','КП','PHIT','CPOR','CORE_PHI']),iI=find(['SAMPLE_ID','ID','SAMPLE','ОБРАЗЕЦ']);
+  if(iD<0||iP<0)throw new Error('не нашёл колонки глубины и пористости. Заголовок: '+names.join(', '));
+  const num=q=>{if(q===undefined)return NaN;q=cl(q);if(q==='')return NaN;if(delim!==',')q=q.replace(',','.');const v=Number(q);return isNull(v)?NaN:v;};
+  const out=[];
+  for(let i=1;i<lines.length;i++){const f=lines[i].split(delim);out.push({id:iI>=0?cl(f[iI]||''):('S'+i),d:num(f[iD]),phi:num(f[iP])});}
+  const pv=out.map(r=>r.phi).filter(v=>v===v);
+  let pct=unitMode==='pct';if(unitMode==='auto')pct=pv.length>0&&Math.max(...pv)>1;
+  if(pct)out.forEach(r=>{if(r.phi===r.phi)r.phi/=100;});
+  return{rows:out.filter(r=>isFinite(r.d)),pct};
+}
+function coreCompare(){
+  const L=state.L,K=state.calc,C=state.core;
+  if(!L||!K||!K.PHIE||!C||!C.length)return null;
+  const sh=parseFloat($('coreShift').value)||0,tol=parseFloat($('coreTol').value)||0.04,layers=readLayers();
+  const rows=C.map(r=>{const zc=r.d+sh,pe=windowMean(K.PHIE,L.depth,zc,0.15);
+    const d=(r.phi===r.phi&&pe===pe)?r.phi-pe:NaN;
+    return{...r,zc,pe,d,inL:layers.some(l=>zc>=l.t&&zc<=l.b),bad:isFinite(d)&&Math.abs(d)>tol};});
+  const stat=list=>{const v=list.filter(r=>isFinite(r.d));
+    return{n:v.length,bias:mean(v.map(r=>r.d)),rmse:v.length?Math.sqrt(mean(v.map(r=>r.d*r.d))):NaN,r:pearson(v.map(r=>r.phi),v.map(r=>r.pe))};};
+  let best=null,r0=NaN;
+  for(let q=-40;q<=40;q++){
+    const s=Math.round(q*5)/100,x=[],y=[];
+    C.forEach(r=>{if(r.phi===r.phi){const pe=windowMean(K.PHIE,L.depth,r.d+s,0.15);if(pe===pe){x.push(r.phi);y.push(pe);}}});
+    if(x.length<10)continue;const pr=pearson(x,y);if(q===0)r0=pr;
+    if(isFinite(pr)&&(!best||pr>best.r))best={s,r:pr,n:x.length};
+  }
+  return{rows,all:stat(rows),lay:stat(rows.filter(r=>r.inL)),sh,tol,best,r0,noPhi:C.filter(r=>!(r.phi===r.phi)).length};
+}
+function renderCompare(){
+  const m=state.cmp,du=state.L?state.L.depthUnit:'м';
+  if(!m){$('cmp-msg').innerHTML=state.core?'<div class="msg">Нужен расчёт PHIE (кривые GR, RHOB и NPHI).</div>':'<div class="msg">Загрузите керн (CSV) или откройте пример.</div>';$('cmpTable').innerHTML='';$('cmpShift').innerHTML='';return;}
+  $('cmp-msg').innerHTML='';
+  const row=(nm,s)=>[nm,s.n,fx(s.bias,3),fx(s.rmse,3),fx(s.r,3)];
+  $('cmpTable').innerHTML=`<table><thead><tr><th>Выборка</th><th>Образцов</th><th>bias (керн − PHIE), д.ед.</th><th>RMSE, д.ед.</th><th>Pearson r</th></tr></thead><tbody>${[row('Все образцы',m.all),row('В пластах (внутри заданных интервалов)',m.lay)].map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>
+   <p class="note">Текущий сдвиг керна: ${m.sh>=0?'+':''}${fx(m.sh,2)} ${du}. Образцов без Кп: ${m.noPhi}. С расхождением больше ${m.tol} д.ед. (красные точки): ${m.rows.filter(r=>r.bad).length}. В глинах керн (полная пористость) выше PHIE по определению, оценку качества смотрите по строке «В пластах».</p>`;
+  let t='';
+  if(m.best){
+    t+=`<div class="msg good">Оптимальный сдвиг по Pearson: <b>${m.best.s>=0?'+':''}${fx(m.best.s,2)} ${du}</b> (r = ${fx(m.best.r,3)}, образцов ${m.best.n}); при сдвиге 0 r = ${fx(m.r0,3)}.`;
+    if(state.trueShift!==null)t+=` Истинный сдвиг в примере: +${fx(state.trueShift,2)} ${du}.`;
+    t+=` <button id="bApplyShift" style="margin-left:8px">Применить</button></div>`;
+    if(Math.abs(m.best.s)>=1.999)t+=`<div class="msg warn">Оптимум на границе диапазона ±2.0, <span class="tbd">нужно подтвердить</span>.</div>`;
+    if(isFinite(m.r0)&&m.best.r-m.r0<0.02)t+=`<div class="msg warn">Выигрыш корреляции от сдвига меньше 0.02 (порог условный): сдвиг по этим данным определяется ненадёжно.</div>`;
+  }
+  $('cmpShift').innerHTML=t;
+  const b=$('bApplyShift');if(b)b.onclick=()=>{$('coreShift').value=m.best.s;update();};
+}
+
+/* ============================================================
+   Управление
+   ============================================================ */
+function setStatus(t,cls){const s=$('status');s.className='msg'+(cls?' '+cls:'');s.innerHTML=t;}
+function update(){
+  const L=state.L;
+  document.querySelectorAll('.du').forEach(e=>e.textContent=L?L.depthUnit:'м');
+  if(!L){renderPlate();renderSummary();return;}
+  state.calc=calc(L,readP());
+  state.det=detectRes(L,state.calc,readP());
+  state.cmp=coreCompare();
+  if(state.calc.phitsh!==undefined&&$('phitshAuto').checked)$('phitsh').value=state.calc.phitsh.toFixed(3);
+  renderLayerMsg();renderPlate();renderSummary();renderCompare();
+}
+function loadExample(){
+  const ex=makeExample();state.L=ex.L;state.truth=true;state.core=ex.core;state.coreText=null;state.trueShift=ex.trueShift;$('coreShift').value=0;setLayers(ex.layers);autoGR();update();
+  setStatus('Пример: синтетическая скважина 3000–3100 м, три песчаных пласта 3010–3020, 3040–3050, 3085–3095 м. ВНК заданы в примере: 3016, 3046 и 3092 м. В ГИС есть каверны и пропуски -999.25. Синтетический керн (95 образцов) нанесён на PHIE, его глубины смещены на 0.30 м.');
+}
+$('bExample').onclick=loadExample;
+$('fLas').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;const fr=new FileReader();
+  fr.onload=()=>{try{
+    if(state.truth){state.core=null;state.coreText=null;}
+    state.L=parseLAS(fr.result);state.truth=false;state.trueShift=null;autoGR();update();
+    const L=state.L,found=Object.keys(L.c).join(', ');
+    let msg=`LAS загружен: ${f.name}, ${L.n} точек, ${fx(L.depth[0],1)}–${fx(L.depth[L.n-1],1)} ${L.depthUnit}. Найдены кривые: ${found}.`;
+    const out=readLayers().filter(l=>l.b<L.depth[0]||l.t>L.depth[L.n-1]);
+    if(out.length)msg+=` Интервалы пластов ${out.map(l=>l.i).join(', ')} лежат вне глубин LAS: задайте свои кровлю, подошву и ВНК в таблице.`;
+    setStatus(msg,out.length?'warn':'good');
+  }catch(err){setStatus('Ошибка LAS: '+err.message,'bad');}};
+  fr.readAsText(f);e.target.value='';
+};
+['grmin','grmax','vm','rma','rf','phitsh','rw','ea','em','en','cutV','cutP','cutS','maskCal','phitshAuto'].forEach(id=>{$(id).onchange=update;if($(id).tagName==='INPUT'&&$(id).type==='number')$(id).oninput=update;});
+$('bAutoGR').onclick=()=>{autoGR();update();};
+$('bSnap').onclick=snapLayers;
+$('fCore').onchange=e=>{const f=e.target.files[0];if(!f)return;const fr=new FileReader();
+  fr.onload=()=>{try{state.coreText=fr.result;const r=parseCoreCSV(state.coreText,$('coreUnit').value);state.core=r.rows;state.trueShift=null;
+    update();setStatus(`Керн загружен: ${f.name}, образцов ${r.rows.length}. Кп ${r.pct?'переведён из % в доли':'принят как доли единицы'}.`,'good');}catch(err){setStatus('Ошибка CSV керна: '+err.message,'bad');}};
+  fr.readAsText(f);e.target.value='';};
+$('coreUnit').onchange=()=>{if(state.coreText!==null){try{state.core=parseCoreCSV(state.coreText,$('coreUnit').value).rows;update();}catch(err){setStatus('Ошибка CSV керна: '+err.message,'bad');}}};
+['coreShift','coreTol'].forEach(id=>{$(id).onchange=update;$(id).oninput=update;});
+$('showCore').onchange=update;
+$('bFitShift').onclick=()=>{if(state.cmp&&state.cmp.best){$('coreShift').value=state.cmp.best.s;update();}else setStatus('Для подбора сдвига нужны LAS (PHIE) и керн, не менее 10 образцов с Кп.','warn');};
+try{window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',update);}catch(e){}
+new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+layerRowsInit();
+if(typeof Plotly==='undefined')setStatus('Plotly не загрузился (cdnjs недоступен): включён запасной вариант планшета.','bad');
+try{loadExample();}catch(e){setStatus('Ошибка примера: '+e.message,'bad');}
+</script>
+</body>
+</html>
